@@ -26,6 +26,7 @@ ACTION_CRAFT = "craft"
 ACTION_TRADE = "trade"
 ACTION_STEAL = "steal"
 ACTION_BUILD = "build"
+ACTION_REPRODUCE = "reproduce"
 
 JOB_LUMBERJACK = "lumberjack"
 JOB_GUARD = "guard"
@@ -48,7 +49,10 @@ class Agent:
         self.y = y
         self.job = job if job else random.choice([JOB_LUMBERJACK, JOB_GUARD, JOB_GATHERER, JOB_BLACKSMITH, JOB_THIEF])
         self.color = self._get_job_color()
-        self.clan = None 
+        self.clan = None
+        self.gender = random.choice(["M", "F"])
+        self.age = 20 * 720 # Start at 20 years old (approx)
+        self.generation = 1
         self.is_dead = False
         
         # Core Systems
@@ -75,6 +79,28 @@ class Agent:
         self._current_target = None
         self._craft_target = None
         self._trade_target = None
+        self._repro_partner = None
+
+    def reproduce(self, partner, world):
+        if not partner: return
+
+        child_name = f"Child-{world.tick_count}"
+        child = Agent(self.x, self.y, child_name)
+        child.age = 0
+        child.generation = max(self.generation, partner.generation) + 1
+        child.clan = self.clan if self.gender == "M" else partner.clan
+        child.color = self.color # Simplified inheritance
+
+        # Mix traits
+        for trait in ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"]:
+            val1 = getattr(self.psyche, trait)
+            val2 = getattr(partner.psyche, trait)
+            new_val = (val1 + val2) / 2.0 + random.uniform(-0.1, 0.1)
+            setattr(child.psyche, trait, max(0.0, min(1.0, new_val)))
+
+        world._place_agent(child)
+        world.agents.append(child)
+        world.broadcast_event(f"A baby was born: {child.clan} clan!")
 
     def _get_job_color(self):
         if self.job == JOB_LUMBERJACK: return "#8D6E63" 
@@ -154,7 +180,8 @@ class Agent:
         scores = {
             ACTION_MOVE: 0, ACTION_EAT: 0, ACTION_SLEEP: 0, ACTION_IDLE: 0,
             ACTION_ATTACK: 0, ACTION_GATHER: 0, ACTION_CRAFT: 0,
-            ACTION_TRADE: 0, ACTION_STEAL: 0, ACTION_BUILD: 0
+            ACTION_TRADE: 0, ACTION_STEAL: 0, ACTION_BUILD: 0,
+            ACTION_REPRODUCE: 0
         }
         
         nearby_agents = self._get_nearby_agents(world)
@@ -235,6 +262,14 @@ class Agent:
         if traders and len(self.inventory.items) > 5 and not is_night:
             scores[ACTION_TRADE] = 70
             self._trade_target = traders[0]
+
+        # Reproduction
+        self._repro_partner = None
+        if self.age > 18 * 720 and self.energy > 80 and self.hunger < 20:
+             potential_partners = [a for a in nearby_agents if a.gender != self.gender and a.age > 18 * 720]
+             if potential_partners:
+                 scores[ACTION_REPRODUCE] = 80
+                 self._repro_partner = potential_partners[0]
         
         # 4. Work
         scores[ACTION_MOVE] = 20
@@ -286,7 +321,14 @@ class Agent:
     def perform_action(self, action, world):
         self.memory["last_action"] = action
         tick = world.tick_count
+        self.age += 1 # Age naturally
         
+        # Natural Death (Approx 60 "days")
+        if self.age > 60 * 720 and random.random() < 0.001:
+            self.log_event("Died of old age.", -10, "death", tick)
+            self.die(world, None)
+            return
+
         if action == ACTION_MOVE:
             self._move_randomly(world)
             self.energy = max(0, self.energy - 1)
@@ -343,6 +385,13 @@ class Agent:
                  self.say("neutral", tick, world, "craft", Item("Wall", "build"))
              else:
                  self.log_event("Not enough wood to build.", 0, "fail", tick)
+
+        elif action == ACTION_REPRODUCE:
+             if self._repro_partner:
+                 self.reproduce(self._repro_partner, world)
+                 self.energy -= 30
+                 self.log_event("Started a family.", 10, "joy", tick)
+                 self.say("friendly", tick, world)
 
         elif action == ACTION_SLEEP:
             self.energy = min(self.max_energy, self.energy + 5) # Slower regen
@@ -474,7 +523,8 @@ class Agent:
             "is_dead": self.is_dead,
             "stats": {"hunger": self.hunger, "energy": self.energy},
             "inventory": self.inventory.to_dict(),
-            "speech": {"text": self.current_speech, "tick": self.speech_tick}
+            "speech": {"text": self.current_speech, "tick": self.speech_tick},
+            "genetics": {"gender": self.gender, "clan": self.clan, "age": self.age}
         }
 
 
@@ -487,7 +537,8 @@ class WorldEngine:
         self.grid = self._generate_biomes()
         self.agents = []
         self.corpses = []
-        self.events = [] 
+        self.events = []
+        self.clan_names = ["Stark", "Lannister", "Wayne", "Doe", "Smith"]
         self._spawn_agents(num_agents)
 
     def is_night(self):
@@ -530,6 +581,8 @@ class WorldEngine:
         for i in range(count):
             name = f"Citoyen-{i}"
             agent = Agent(0, 0, name)
+            agent.clan = random.choice(self.clan_names)
+            agent.name = f"{name} {agent.clan}"
             self._place_agent(agent)
             self.agents.append(agent)
 
