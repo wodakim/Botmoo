@@ -1,22 +1,25 @@
 from typing import List, Dict, Optional
 
 class Item:
-    def __init__(self, name: str, item_type: str, power: float = 0):
+    def __init__(self, name: str, item_type: str, power: float = 0, value: int = 0):
         self.name = name
         self.type = item_type # "resource", "weapon", "armor"
         self.power = power
+        self.value = value
 
     def to_dict(self):
         return {
             "name": self.name,
             "type": self.type,
-            "power": self.power
+            "power": self.power,
+            "value": self.value
         }
 
 class Inventory:
     def __init__(self, capacity=10):
         self.capacity = capacity
         self.items: List[Item] = []
+        self.gold = 0
         self.equipped: Dict[str, Optional[Item]] = {
             "hand": None,
             "body": None
@@ -56,14 +59,16 @@ class Inventory:
     def to_dict(self):
         return {
             "items": [i.to_dict() for i in self.items],
+            "gold": self.gold,
             "equipped": {k: (v.to_dict() if v else None) for k, v in self.equipped.items()}
         }
 
 class CraftingSystem:
     RECIPES = {
-        "Spear": {"cost": {"Wood": 3}, "result": Item("Spear", "weapon", 15)},
-        "Tunic": {"cost": {"Fiber": 3}, "result": Item("Tunic", "armor", 10)},
-        "Club": {"cost": {"Wood": 2}, "result": Item("Club", "weapon", 10)},
+        "Spear": {"cost": {"Wood": 3}, "result": Item("Spear", "weapon", 15, 10)},
+        "Tunic": {"cost": {"Fiber": 3}, "result": Item("Tunic", "armor", 10, 15)},
+        "Club": {"cost": {"Wood": 2}, "result": Item("Club", "weapon", 10, 5)},
+        "Sword": {"cost": {"Ore": 2}, "result": Item("Sword", "weapon", 30, 50)},
     }
 
     @staticmethod
@@ -85,6 +90,8 @@ class CraftingSystem:
             inventory.remove(mat, count)
         
         # Add result
-        new_item = Item(recipe["result"].name, recipe["result"].type, recipe["result"].power)
+        # We need to create a new Item instance, otherwise we might share references if we just used the recipe result directly
+        result_proto = recipe["result"]
+        new_item = Item(result_proto.name, result_proto.type, result_proto.power, result_proto.value)
         inventory.add(new_item)
         return True
