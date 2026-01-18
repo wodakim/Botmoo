@@ -260,7 +260,8 @@ class Agent:
                 loot = "Wood"
             
             if loot and random.random() < 0.6:
-                self.inventory.add(Item(loot, "resource"))
+                val = 3 if loot == "Wood" else 8
+                self.inventory.add(Item(loot, "resource", 0, val))
                 self.log_event(f"Gathered {loot}.", 1, "work", tick)
             else:
                 self.log_event("Failed gather.", 0, "work", tick)
@@ -410,6 +411,7 @@ class WorldEngine:
     def _spawn_agents(self, count):
         for i in range(1):
             agent = Agent(0, 0, f"Trader-{i}", JOB_TRADER)
+            agent.inventory.gold = 500
             self._place_agent(agent)
             self.agents.append(agent)
             
