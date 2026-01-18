@@ -13,6 +13,7 @@ class TestAgentAI(unittest.TestCase):
         agent = Agent(0, 0)
         agent.hunger = 90
         agent.energy = 50
+        agent.inventory.add(Item("Berries", "food")) # Give food
         world = WorldEngine()
         
         # Should prioritize eating

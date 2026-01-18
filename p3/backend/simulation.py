@@ -152,6 +152,12 @@ class Agent:
         scores[ACTION_EAT] = (self.hunger / self.max_hunger) * 100
         scores[ACTION_SLEEP] = ((self.max_energy - self.energy) / self.max_energy) * 100
         
+        # Hunger override: if no food, prioritize gathering/work (desperation)
+        has_food = self.inventory.count("Berries") > 0
+        if self.hunger > 50 and not has_food:
+             scores[ACTION_EAT] = 0 # Can't eat air
+             scores[ACTION_GATHER] = 50 + (self.hunger / 2) # Desperate for food
+
         # Day/Night Cycle Logic
         is_night = world.is_night()
         if is_night:
@@ -220,6 +226,10 @@ class Agent:
             elif self.job == JOB_GATHERER:
                 scores[ACTION_GATHER] = 30
         
+        # Gatherer override: If hungry, gather!
+        if self.hunger > 50 and not has_food:
+             scores[ACTION_GATHER] = max(scores[ACTION_GATHER], 60)
+
         if self.inventory.equipped["hand"] is None:
              if CraftingSystem.can_craft(self.inventory, "Spear"):
                  self._craft_target = "Spear"
@@ -245,9 +255,14 @@ class Agent:
             if tick % 5 == 0: self.hunger = min(self.max_hunger, self.hunger + 1)
             
         elif action == ACTION_EAT:
-            self.hunger = max(0, self.hunger - 20)
-            self.energy = max(0, self.energy - 1)
-            
+            if self.inventory.count("Berries") > 0:
+                self.inventory.remove("Berries", 1)
+                self.hunger = max(0, self.hunger - 30)
+                self.energy = max(0, self.energy - 1)
+                self.log_event("Ate berries.", 2, "survival", tick)
+            else:
+                 self.log_event("No food to eat!", -1, "fail", tick)
+
         elif action == ACTION_GATHER:
             self.energy = max(0, self.energy - 2)
             if tick % 5 == 0: self.hunger = min(self.max_hunger, self.hunger + 2)
@@ -259,11 +274,19 @@ class Agent:
             elif terrain == TERRAIN_FOREST:
                 loot = "Wood"
             
+            # Forage for berries (Everyone can do it on Grass/Forest)
+            found_food = False
+            if terrain == TERRAIN_FOREST or terrain == TERRAIN_GRASS:
+                 if random.random() < 0.3: # 30% chance for food
+                     self.inventory.add(Item("Berries", "food", 0, 2))
+                     self.log_event("Found Berries!", 2, "survival", tick)
+                     found_food = True
+
             if loot and random.random() < 0.6:
                 val = 3 if loot == "Wood" else 8
                 self.inventory.add(Item(loot, "resource", 0, val))
                 self.log_event(f"Gathered {loot}.", 1, "work", tick)
-            else:
+            elif not found_food:
                 self.log_event("Failed gather.", 0, "work", tick)
 
         elif action == ACTION_CRAFT:
@@ -312,7 +335,12 @@ class Agent:
              if tick % 10 == 0: self.hunger = min(self.max_hunger, self.hunger + 0.5)
              
              if self.job == JOB_MONSTER and not world.is_night():
-                 self.take_damage(20, self, world) 
+                 self.take_damage(20, self, world)
+
+        # Starvation Check
+        if self.hunger >= self.max_hunger and self.job != JOB_MONSTER:
+             self.take_damage(1, self, world) # Starve slowly
+             if tick % 5 == 0: self.log_event("Starving!", -5, "pain", tick)
 
     def take_damage(self, amount, attacker, world):
         self.energy = max(0, self.energy - amount)
