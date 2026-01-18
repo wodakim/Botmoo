@@ -4,7 +4,7 @@ import math
 import logging
 from systems.psychology import Psychology, EpisodicMemory
 from systems.inventory import Inventory, Item, CraftingSystem
-from systems.memetics import MemeticHost
+from systems.memetics import MemeticHost, LanguageEngine
 from systems.entities import Corpse, Clan
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,7 @@ ACTION_GATHER = "gather"
 ACTION_CRAFT = "craft"
 ACTION_TRADE = "trade"
 ACTION_STEAL = "steal"
+ACTION_BUILD = "build"
 
 JOB_LUMBERJACK = "lumberjack"
 JOB_GUARD = "guard"
@@ -105,21 +106,36 @@ class Agent:
         elif emotional_weight > 2:
             self.psyche.update_sanity(emotional_weight * 0.5)
 
-    def say(self, sentiment, tick_now, world):
-        if self.speech_cooldown > 0 or self.job == JOB_MONSTER: return
+    def say(self, sentiment, tick_now, world, context_action=None, context_target=None):
+        if self.speech_cooldown > 0 and sentiment != "pain": return # Pain overrides cooldown
+        if self.job == JOB_MONSTER: return
 
-        if self.psyche.sanity < 30 and random.random() < 0.4:
-            text = "..." 
-        else:
-            meme = self.memetics.express(sentiment)
-            if not meme: return
-            text = meme.text
+        text = ""
+        meme = None
+
+        # Procedural Generation (Priority)
+        if context_action:
+             target_name = context_target.name if context_target else None
+             if sentiment == "neutral" and random.random() < 0.5:
+                 text = LanguageEngine.generate_sentence("self", context_action, target_name, sentiment)
+             elif sentiment == "hostile":
+                 text = LanguageEngine.generate_sentence("self", "attack", target_name, "hostile")
+
+        # Fallback to Memetics
+        if not text:
+            if self.psyche.sanity < 30 and random.random() < 0.4:
+                text = "..."
+            else:
+                meme = self.memetics.express(sentiment)
+                if not meme: return
+                text = meme.text
 
         self.current_speech = text
         self.speech_tick = tick_now
         self.speech_cooldown = 20 # 10s silence
         
-        self._broadcast_meme(meme, world)
+        if meme:
+            self._broadcast_meme(meme, world)
 
     def _broadcast_meme(self, meme, world):
         if not meme: return
@@ -138,15 +154,23 @@ class Agent:
         scores = {
             ACTION_MOVE: 0, ACTION_EAT: 0, ACTION_SLEEP: 0, ACTION_IDLE: 0,
             ACTION_ATTACK: 0, ACTION_GATHER: 0, ACTION_CRAFT: 0,
-            ACTION_TRADE: 0, ACTION_STEAL: 0
+            ACTION_TRADE: 0, ACTION_STEAL: 0, ACTION_BUILD: 0
         }
         
         nearby_agents = self._get_nearby_agents(world)
         nearby_hostiles = [a for a in nearby_agents if a.id in self.memory["hostile_agents"] or a.job == JOB_MONSTER]
         
+        # ADHD: Chance to be distracted and pick random action or just move
+        if "adhd" in self.psyche.disorders and random.random() < 0.2:
+             return random.choice([ACTION_MOVE, ACTION_IDLE, ACTION_GATHER])
+
         # Chat (Increased probability slightly, controlled by cooldown)
-        if nearby_hostiles and random.random() < 0.3: self.say("hostile", world.tick_count, world)
-        elif nearby_agents and random.random() < 0.2: self.say("friendly", world.tick_count, world)
+        if "schizophrenia" in self.psyche.disorders and random.random() < 0.1:
+             self.say(random.choice(["fearful", "hostile", "neutral"]), world.tick_count, world)
+        elif nearby_hostiles and random.random() < 0.3:
+             self.say("hostile", world.tick_count, world, context_action="attack", context_target=nearby_hostiles[0])
+        elif nearby_agents and random.random() < 0.2:
+             self.say("friendly", world.tick_count, world)
 
         # 1. Survival
         scores[ACTION_EAT] = (self.hunger / self.max_hunger) * 100
@@ -185,8 +209,14 @@ class Agent:
         confidence = 1.0 if (combat_power > 10 or self.job == JOB_GUARD) else 0.2
         if self.psyche.neuroticism > 0.7: confidence *= 0.5
 
+        if "sociopathy" in self.psyche.disorders:
+            confidence = 1.5 # Overconfident/Callous
+
         if nearby_hostiles:
-            scores[ACTION_ATTACK] = 90 * confidence
+            if "fear" in self.psyche.disorders:
+                scores[ACTION_MOVE] += 100 # Flee!
+            else:
+                scores[ACTION_ATTACK] = 90 * confidence
         elif nearby_agents:
             if self.job == JOB_GUARD:
                 for n in nearby_agents:
@@ -195,6 +225,9 @@ class Agent:
                 scores[ACTION_STEAL] = 60
             elif "paranoia" in self.psyche.disorders:
                 scores[ACTION_ATTACK] = 50 * confidence
+            elif "sociopathy" in self.psyche.disorders:
+                 # Sociopaths might attack for gain or no reason
+                 if random.random() < 0.1: scores[ACTION_ATTACK] = 60
 
         # 3. Economy (Trade)
         self._trade_target = None
@@ -209,6 +242,12 @@ class Agent:
         
         terrain = world.get_terrain(self.x, self.y)
         self._craft_target = None
+
+        # Construction Logic
+        if self.inventory.count("Wood") >= 5 and terrain == TERRAIN_GRASS:
+             # Builders want to build walls
+             if self.job == JOB_LUMBERJACK or self.job == JOB_BLACKSMITH:
+                 scores[ACTION_BUILD] = 65
 
         if not is_night: 
             if self.job == JOB_LUMBERJACK:
@@ -296,6 +335,15 @@ class Agent:
             else:
                 self.log_event("Failed craft.", -1, "fail", tick)
 
+        elif action == ACTION_BUILD:
+             if self.inventory.count("Wood") >= 5:
+                 self.inventory.remove("Wood", 5)
+                 world.set_terrain(self.x, self.y, TERRAIN_WALL)
+                 self.log_event("Built a wall.", 5, "achievement", tick)
+                 self.say("neutral", tick, world, "craft", Item("Wall", "build"))
+             else:
+                 self.log_event("Not enough wood to build.", 0, "fail", tick)
+
         elif action == ACTION_SLEEP:
             self.energy = min(self.max_energy, self.energy + 5) # Slower regen
             if tick % 10 == 0: self.hunger = min(self.max_hunger, self.hunger + 1)
@@ -303,21 +351,52 @@ class Agent:
         elif action == ACTION_ATTACK:
             target = self._current_target
             if target:
-                if self.job != JOB_MONSTER: self.say("hostile", tick, world)
-                
+                # Combat Logic
                 base_dmg = 10
-                if self.inventory.equipped["hand"]:
-                    base_dmg += self.inventory.equipped["hand"].power
+                weapon = self.inventory.equipped["hand"]
+                if weapon: base_dmg += weapon.power
                 if self.job == JOB_GUARD or self.job == JOB_MONSTER: base_dmg += 5
-                
                 if self.job == JOB_MONSTER: base_dmg = 20
 
-                hit_chance = 0.7 + (self.energy / 200.0)
-                if random.random() < hit_chance:
-                    target.take_damage(base_dmg, self, world)
-                    self.log_event(f"Hit {target.name}!", 2, "combat", tick)
-                else:
+                # Hit Chance (Agility vs Agility approximation)
+                hit_chance = 0.7 + ((self.energy - target.energy) / 200.0)
+
+                outcome = "hit"
+                if random.random() > hit_chance:
+                    outcome = "miss"
+                elif random.random() < 0.1: # 10% Dodge chance
+                    outcome = "dodge"
+                elif target.inventory.equipped["hand"] and random.random() < 0.15: # Parry chance if armed
+                    outcome = "parry"
+
+                if outcome == "hit":
+                    # Critical?
+                    is_crit = random.random() < 0.1
+                    final_dmg = base_dmg * 1.5 if is_crit else base_dmg
+
+                    target.take_damage(final_dmg, self, world)
+
+                    # Visual & Log
+                    crit_str = " CRITICAL!" if is_crit else ""
+                    self.log_event(f"Hit {target.name}{crit_str}", 2, "combat", tick)
+                    self.current_speech = f"Take that! ({int(final_dmg)} dmg)" if self.job != JOB_MONSTER else "ROAR!"
+                    self.speech_tick = tick
+
+                elif outcome == "miss":
                     self.log_event(f"Missed {target.name}!", -1, "combat", tick)
+                    self.current_speech = "Damn, missed!"
+                    self.speech_tick = tick
+
+                elif outcome == "dodge":
+                    self.log_event(f"{target.name} dodged!", -1, "combat", tick)
+                    target.current_speech = "Too slow!"
+                    target.speech_tick = tick
+
+                elif outcome == "parry":
+                    self.log_event(f"{target.name} parried!", -1, "combat", tick)
+                    target.current_speech = "Blocked!"
+                    target.speech_tick = tick
+
                 self.energy = max(0, self.energy - 5)
 
         elif action == ACTION_TRADE:
@@ -334,6 +413,11 @@ class Agent:
              self.energy = max(0, self.energy - 0.5)
              if tick % 10 == 0: self.hunger = min(self.max_hunger, self.hunger + 0.5)
              
+             # Flavor logs for liveliness
+             if random.random() < 0.05:
+                 flavors = ["Whistling a tune.", "Watching the sky.", "Thinking about life.", "Kicking a stone.", "Adjusting gear."]
+                 self.log_event(random.choice(flavors), 0, "idle", tick)
+
              if self.job == JOB_MONSTER and not world.is_night():
                  self.take_damage(20, self, world)
 
@@ -482,6 +566,10 @@ class WorldEngine:
         if 0 <= x < self.width and 0 <= y < self.height:
             return self.grid[y][x]
         return TERRAIN_WALL
+
+    def set_terrain(self, x, y, type):
+        if 0 <= x < self.width and 0 <= y < self.height:
+            self.grid[y][x] = type
 
     def add_corpse(self, corpse):
         self.corpses.append(corpse)

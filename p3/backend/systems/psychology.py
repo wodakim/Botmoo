@@ -15,7 +15,7 @@ class Psychology:
         self.max_sanity = 100.0
         
         # Disorders (Acquired via trauma)
-        self.disorders = [] # List of strings: "paranoia", "hoarding_ocd", "schizophrenia"
+        self.disorders = [] # List of strings: "paranoia", "hoarding_ocd", "schizophrenia", "sociopathy", "adhd", "fear"
 
     def update_sanity(self, amount):
         self.sanity = max(0, min(self.max_sanity, self.sanity + amount))
@@ -31,6 +31,15 @@ class Psychology:
             
         if self.sanity < 40 and self.conscientiousness > 0.8 and "hoarding_ocd" not in self.disorders:
             self.disorders.append("hoarding_ocd")
+
+        if self.agreeableness < 0.2 and self.sanity < 50 and "sociopathy" not in self.disorders:
+            self.disorders.append("sociopathy")
+
+        if self.conscientiousness < 0.2 and self.extraversion > 0.7 and "adhd" not in self.disorders:
+            self.disorders.append("adhd")
+
+        if self.sanity < 20 and self.neuroticism > 0.8 and "fear" not in self.disorders:
+             self.disorders.append("fear")
 
     def to_dict(self):
         return {
