@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Society Sim Epsilon</title>
+    <style>
+        :root {
+            --bg-color: #121212; --panel-bg: #1e1e1e; --text-main: #e0e0e0;
+            --accent: #4CAF50; --danger: #ff5555; --warn: #ff9800; --gold: #FFD700;
+        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: var(--bg-color); color: var(--text-main); margin: 0; overflow: hidden; display: flex; height: 100vh; }
+        #viewport { flex-grow: 1; position: relative; overflow: hidden; background-color: #000; cursor: grab; }
+        #viewport:active { cursor: grabbing; }
+        canvas { display: block; }
+        
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
+        
+        /* Night Overlay */
+        #night-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 0, 50, 0); /* Transparent by default */
+            pointer-events: none; transition: background-color 2s ease;
+            mix-blend-mode: multiply;
+        }
+
+        #inspector { width: 340px; background-color: var(--panel-bg); border-left: 1px solid #333; display: flex; flex-direction: column; box-shadow: -5px 0 15px rgba(0,0,0,0.5); z-index: 10; }
+        .panel-header { padding: 15px; background-color: #252525; border-bottom: 1px solid #333; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); display: flex; justify-content: space-between; align-items: center; }
+        .panel-content { flex-grow: 1; padding: 15px; overflow-y: auto; }
+        
+        .stat-group { margin-bottom: 15px; background: #2a2a2a; padding: 10px; border-radius: 4px; }
+        .stat-label { font-size: 0.8rem; color: #888; margin-bottom: 4px; display: block; }
+        .stat-value { font-size: 1.1rem; font-weight: 500; }
+        .bar-wrap { height: 6px; background: #444; border-radius: 3px; overflow: hidden; margin-top: 5px; }
+        .bar-fill { height: 100%; transition: width 0.3s ease; }
+        .log-entry { font-size: 0.85rem; padding: 4px 0; border-bottom: 1px solid #333; color: #bbb; }
+        
+        .psyche-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; gap: 2px; text-align: center; margin-top: 5px; }
+        .psyche-trait { background: #333; border-radius: 3px; padding: 4px 0; }
+        .trait-val { font-size: 0.9rem; font-weight: bold; }
+        .trait-name { font-size: 0.6rem; color: #888; }
+
+        .inv-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin-top: 5px; }
+        .inv-slot { background: #111; border: 1px solid #444; aspect-ratio: 1; display: flex; justify-content: center; align-items: center; font-size: 1.2rem; position: relative; }
+        .equipped-row { display: flex; gap: 10px; margin-bottom: 10px; }
+        .equip-slot { flex: 1; background: #222; border: 1px dashed #555; padding: 5px; font-size: 0.8rem; text-align: center; color: #666; }
+        .equip-slot.filled { border: 1px solid var(--accent); color: var(--text-main); }
+
+        #connection-pill { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 20px; font-size: 0.8rem; pointer-events: auto; display: flex; align-items: center; gap: 5px; z-index: 20; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background-color: #555; }
+        .dot.online { background-color: var(--accent); }
+        .dot.offline { background-color: var(--danger); }
+        
+        .bubble { position: absolute; background: white; color: #222; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; pointer-events: none; transform: translate(-50%, -100%); white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.3); transition: opacity 0.5s; opacity: 1; z-index: 5; }
+        .bubble::after { content: ''; position: absolute; bottom: -4px; left: 50%; transform: translateX(-50%); border-width: 4px 4px 0; border-style: solid; border-color: white transparent transparent transparent; }
+
+        #toast-container { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 10px; align-items: center; pointer-events: none; z-index: 20; }
+        .toast { background: rgba(0, 0, 0, 0.8); color: white; padding: 10px 20px; border-radius: 5px; border-left: 4px solid var(--accent); animation: fadein 0.5s, fadeout 0.5s 4.5s; font-size: 0.9rem; }
+        @keyframes fadein { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeout { from { opacity: 1; } to { opacity: 0; } }
+    </style>
+</head>
+<body>
+    <div id="viewport">
+        <canvas id="gameCanvas"></canvas>
+        <div id="night-overlay"></div>
+        <div id="ui-layer">
+            <div id="connection-pill">
+                <div id="status-dot" class="dot offline"></div>
+                <span id="status-text">Connecting...</span>
+                <span id="clock-display" style="margin-left: 10px; color: #ccc;">00:00</span>
+            </div>
+            <div id="bubbles-container"></div>
+            <div id="toast-container"></div>
+        </div>
+    </div>
+
+    <div id="inspector">
+        <div class="panel-header">
+            <span>Society Sim</span>
+            <span style="font-size: 0.7em; color: #666;">EPSILON 1.0</span>
+        </div>
+        <div class="panel-content">
+            <div id="world-stats" class="stat-group">
+                <span class="stat-label">Time</span>
+                <div class="stat-value">Tick <span id="tick-count">0</span></div>
+                <span class="stat-label" style="margin-top:10px">Population</span>
+                <div class="stat-value"><span id="agent-count">0</span> Souls</div>
+            </div>
+
+            <div id="selection-panel" style="display:none">
+                <div class="panel-header" style="margin: -15px -15px 15px -15px; background:#333; font-size:0.9rem;">
+                    Citizen Psyche
+                </div>
+                <h2 id="agent-name" style="margin:0 0 5px 0; color: #fff;">Name</h2>
+                <div id="agent-job-row" style="margin-bottom: 10px; font-size: 0.9rem; color: #888;">
+                    <span id="agent-job">JOB</span> • ID: <span id="agent-id">000</span>
+                </div>
+
+                <div class="stat-group">
+                    <span class="stat-label">Wealth</span>
+                    <div class="stat-value" style="color:var(--gold)">💰 <span id="agent-gold">0</span>g</div>
+                </div>
+
+                <div class="stat-group">
+                    <span class="stat-label">Mental State</span>
+                    <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+                        <span style="font-size:0.8rem">Sanity</span>
+                        <span id="val-sanity" style="font-size:0.8rem">100%</span>
+                    </div>
+                    <div class="bar-wrap"><div id="bar-sanity" class="bar-fill" style="background:#9C27B0; width:100%"></div></div>
+                    <div id="disorders-list" style="margin-top: 8px; font-size: 0.8rem; color: var(--danger); font-style: italic;"></div>
+                    <div class="psyche-grid" id="psyche-grid"></div>
+                </div>
+
+                <div class="stat-group">
+                    <span class="stat-label">Physical State</span>
+                    <div class="bar-wrap" title="Hunger"><div id="bar-hunger" class="bar-fill" style="background:#ff9800; width:0%"></div></div>
+                    <div class="bar-wrap" title="Energy" style="margin-top:4px"><div id="bar-energy" class="bar-fill" style="background:#2196F3; width:100%"></div></div>
+                </div>
+                
+                <div class="stat-group">
+                     <span class="stat-label">Inventory</span>
+                    <div class="equipped-row">
+                        <div id="slot-hand" class="equip-slot">Hand: Empty</div>
+                        <div id="slot-body" class="equip-slot">Body: Rags</div>
+                    </div>
+                    <div class="inv-grid" id="inv-grid"></div>
+                </div>
+
+                <div class="stat-group">
+                    <span class="stat-label">Memory Stream</span>
+                    <div id="memory-log" style="height: 100px; overflow-y: auto; margin-top:5px;"></div>
+                </div>
+            </div>
+            
+            <div id="empty-state" style="text-align:center; color:#555; margin-top:50px;">
+                Select a citizen to analyze.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const TILE_SIZE = 24; 
+        const CONFIG = { colors: { grass: '#2d3e23', forest: '#1a2b15', wall: '#5e4b35', water: '#3b657a' } };
+        const ITEM_ICONS = { "Wood": "🪵", "Spear": "🔱", "Club": "🏏", "Fiber": "🌿", "Tunic": "👕", "Sword": "⚔️", "Ore": "🪨" };
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        
+        let worldState = null;
+        let mapData = null; 
+        let selectedId = null;
+        const activeBubbles = {}; 
+        const camera = { x: 0, y: 0, zoom: 1.5, isDragging: false, lastX: 0, lastY: 0 };
+        const assets = {};
+        const processedEvents = new Set(); 
+
+        function resize() {
+            canvas.width = document.getElementById('viewport').clientWidth;
+            canvas.height = document.getElementById('viewport').clientHeight;
+            if(worldState && mapData) render();
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        function generateAssets() {
+            function createTile(color, type) {
+                const c = document.createElement('canvas'); c.width = TILE_SIZE; c.height = TILE_SIZE;
+                const x = c.getContext('2d'); x.fillStyle = color; x.fillRect(0,0, TILE_SIZE, TILE_SIZE);
+                if (type === 'grass') { x.fillStyle = 'rgba(255,255,255,0.03)'; x.fillRect(2, 2, TILE_SIZE-4, TILE_SIZE-4); } 
+                else if (type === 'forest') { x.fillStyle = '#141e10'; x.fillRect(0,0, TILE_SIZE, TILE_SIZE); x.fillStyle = '#2e4a24'; x.beginPath(); x.arc(TILE_SIZE/2, TILE_SIZE/2, TILE_SIZE/2.5, 0, Math.PI*2); x.fill(); }
+                else if (type === 'wall') { x.fillStyle = 'rgba(0,0,0,0.3)'; x.fillRect(0, TILE_SIZE-4, TILE_SIZE, 4); x.fillStyle = '#7a6348'; x.fillRect(2, 2, TILE_SIZE-4, TILE_SIZE-8); }
+                else if (type === 'water') { x.fillStyle = '#4b7a94'; x.fillRect(4, 4, 8, 2); }
+                return c;
+            }
+            assets.grass = createTile(CONFIG.colors.grass, 'grass');
+            assets.forest = createTile(CONFIG.colors.forest, 'forest');
+            assets.wall = createTile(CONFIG.colors.wall, 'wall');
+            assets.water = createTile(CONFIG.colors.water, 'water');
+        }
+        generateAssets();
+
+        async function loadMap() {
+            try { const res = await fetch('/map'); mapData = await res.json(); camera.x = (mapData.width * TILE_SIZE) / 2; camera.y = (mapData.height * TILE_SIZE) / 2; render(); } catch (e) { console.error(e); }
+        }
+        loadMap();
+
+        const viewEl = document.getElementById('viewport');
+        viewEl.addEventListener('mousedown', e => { if (e.button === 1 || e.button === 2) { camera.isDragging = true; camera.lastX = e.clientX; camera.lastY = e.clientY; } else if (e.button === 0) { handleSelection(e.clientX, e.clientY); } });
+        window.addEventListener('mouseup', () => camera.isDragging = false);
+        window.addEventListener('mousemove', e => { if (camera.isDragging) { const dx = e.clientX - camera.lastX; const dy = e.clientY - camera.lastY; camera.x -= dx / camera.zoom; camera.y -= dy / camera.zoom; camera.lastX = e.clientX; camera.lastY = e.clientY; requestAnimationFrame(render); } });
+        viewEl.addEventListener('wheel', e => { e.preventDefault(); const newZoom = camera.zoom - Math.sign(e.deltaY) * 0.1; camera.zoom = Math.max(0.5, Math.min(4.0, newZoom)); requestAnimationFrame(render); });
+        viewEl.addEventListener('contextmenu', e => e.preventDefault());
+
+        function handleSelection(screenX, screenY) {
+            const rect = canvas.getBoundingClientRect();
+            const mx = (screenX - rect.left) - canvas.width/2; const my = (screenY - rect.top) - canvas.height/2;
+            const wx = (mx / camera.zoom) + camera.x; const wy = (my / camera.zoom) + camera.y;
+            const gx = Math.floor(wx / TILE_SIZE); const gy = Math.floor(wy / TILE_SIZE);
+
+            if (worldState) {
+                const agent = worldState.agents.find(a => Math.round(a.x) === gx && Math.round(a.y) === gy);
+                selectedId = agent ? agent.id : null;
+                updateInspector(); render();
+            }
+        }
+
+        function showToast(text) {
+            const container = document.getElementById('toast-container');
+            const el = document.createElement('div');
+            el.className = 'toast'; el.innerText = text;
+            if (text.includes("killed")) el.style.borderLeftColor = "red";
+            container.appendChild(el);
+            setTimeout(() => el.remove(), 5000);
+        }
+
+        function render() {
+            if (!mapData) return;
+            ctx.fillStyle = '#050505'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            ctx.translate(canvas.width/2, canvas.height/2); ctx.scale(camera.zoom, camera.zoom); ctx.translate(-camera.x, -camera.y);
+
+            // Map
+            for (let y = 0; y < mapData.height; y++) {
+                for (let x = 0; x < mapData.width; x++) {
+                    const type = mapData.grid[y][x];
+                    ctx.drawImage(assets[type] || assets.grass, x * TILE_SIZE, y * TILE_SIZE);
+                }
+            }
+
+            // Corpses
+            if (worldState && worldState.corpses) {
+                worldState.corpses.forEach(c => {
+                    const cx = c.x * TILE_SIZE; const cy = c.y * TILE_SIZE;
+                    ctx.fillStyle = '#333';
+                    ctx.font = '14px serif';
+                    ctx.fillText("💀", cx + 4, cy + 18);
+                });
+            }
+
+            // Agents
+            if (worldState) {
+                worldState.agents.forEach(agent => {
+                    const ax = agent.x * TILE_SIZE; const ay = agent.y * TILE_SIZE;
+                    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                    ctx.beginPath(); ctx.ellipse(ax + TILE_SIZE/2, ay + TILE_SIZE - 2, TILE_SIZE/3, TILE_SIZE/6, 0, 0, Math.PI*2); ctx.fill();
+
+                    ctx.fillStyle = agent.color;
+                    ctx.beginPath(); ctx.arc(ax + TILE_SIZE/2, ay + TILE_SIZE/2, TILE_SIZE/3, 0, Math.PI*2); ctx.fill();
+                    
+                    if (agent.inventory && agent.inventory.equipped.hand) {
+                        ctx.fillStyle = '#ccc'; ctx.fillRect(ax + TILE_SIZE - 8, ay + 6, 6, 12); 
+                    }
+                    if (agent.job === 'trader') {
+                        ctx.fillStyle = 'gold'; ctx.font = '10px monospace'; ctx.fillText("$", ax+8, ay+4);
+                    }
+                    if (agent.job === 'monster') {
+                        ctx.fillStyle = 'red'; ctx.font = '12px monospace'; ctx.fillText("🐺", ax+6, ay+4);
+                    }
+
+                    if (agent.id === selectedId) { ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.stroke(); }
+                });
+            }
+            ctx.restore();
+            updateBubbles();
+        }
+        
+        function updateBubbles() {
+            if (!worldState) return;
+            const container = document.getElementById('bubbles-container');
+            const now = Date.now();
+
+            worldState.agents.forEach(agent => {
+                if (agent.speech && agent.speech.text) {
+                    const speechKey = `${agent.id}-${agent.speech.tick}`;
+                    if (!activeBubbles[agent.id] || activeBubbles[agent.id].key !== speechKey) {
+                        if (activeBubbles[agent.id]) activeBubbles[agent.id].el.remove();
+                        const el = document.createElement('div');
+                        el.className = 'bubble';
+                        el.innerText = agent.speech.text;
+                        if(agent.psyche.sanity < 30) el.style.color = 'purple';
+                        if (agent.job === 'monster') { el.style.color = 'red'; el.style.background = 'black'; }
+                        
+                        if (agent.last_action && agent.memory.logs.length > 0) {
+                             const lastLog = agent.memory.logs[agent.memory.logs.length-1];
+                             if (lastLog.includes("Learned")) el.style.border = "2px solid gold";
+                        }
+                        container.appendChild(el);
+                        activeBubbles[agent.id] = { key: speechKey, el: el, expires: now + 4000 };
+                    }
+                }
+            });
+
+            for (const id in activeBubbles) {
+                const bubble = activeBubbles[id];
+                if (now > bubble.expires) {
+                    bubble.el.style.opacity = 0;
+                    if (now > bubble.expires + 500) { bubble.el.remove(); delete activeBubbles[id]; }
+                    continue;
+                }
+                const agent = worldState.agents.find(a => a.id === id);
+                if (agent) {
+                    const ax = agent.x * TILE_SIZE + TILE_SIZE/2; const ay = agent.y * TILE_SIZE;
+                    const screenX = (ax - camera.x) * camera.zoom + canvas.width/2;
+                    const screenY = (ay - camera.y) * camera.zoom + canvas.height/2;
+                    if (screenX > -50 && screenX < canvas.width + 50 && screenY > -50 && screenY < canvas.height + 50) {
+                        bubble.el.style.display = 'block';
+                        bubble.el.style.left = screenX + 'px'; bubble.el.style.top = (screenY - 10 * camera.zoom) + 'px';
+                    } else bubble.el.style.display = 'none';
+                } else { bubble.el.remove(); delete activeBubbles[id]; }
+            }
+        }
+
+        const ws = new WebSocket(`ws://${location.host}/ws`);
+        ws.onmessage = (e) => {
+            const data = JSON.parse(e.data);
+            
+            if (data.events) {
+                data.events.forEach(ev => {
+                    const key = ev.tick + ev.text;
+                    if (!processedEvents.has(key)) {
+                        showToast(ev.text);
+                        processedEvents.add(key);
+                        if (processedEvents.size > 20) processedEvents.clear();
+                    }
+                });
+            }
+
+            if (data.agents) { 
+                worldState = data;
+                
+                // Night Cycle
+                const overlay = document.getElementById('night-overlay');
+                const time = data.time;
+                let opacity = 0;
+                if (time >= 20 || time < 6) opacity = 0.5; // Night
+                if (time === 19 || time === 6) opacity = 0.2; // Dusk/Dawn
+                overlay.style.backgroundColor = `rgba(0, 0, 50, ${opacity})`;
+                
+                document.getElementById('clock-display').innerText = `${time}:00`;
+                
+                requestAnimationFrame(render); updateInspector(); 
+            }
+        };
+
+        function updateInspector() {
+            if (!worldState) return;
+            document.getElementById('tick-count').innerText = worldState.tick;
+            document.getElementById('agent-count').innerText = worldState.agents.length;
+
+            const panel = document.getElementById('selection-panel');
+            const empty = document.getElementById('empty-state');
+
+            if (selectedId) {
+                const agent = worldState.agents.find(a => a.id === selectedId);
+                if (agent) {
+                    panel.style.display = 'block'; empty.style.display = 'none';
+                    document.getElementById('agent-name').innerText = agent.name;
+                    document.getElementById('agent-id').innerText = agent.id;
+                    document.getElementById('agent-job').innerText = agent.job ? agent.job.toUpperCase() : "NONE";
+                    document.getElementById('agent-job').style.color = agent.color;
+                    
+                    document.getElementById('agent-gold').innerText = agent.inventory.gold;
+
+                    document.getElementById('val-sanity').innerText = agent.psyche.sanity + "%";
+                    document.getElementById('bar-sanity').style.width = agent.psyche.sanity + "%";
+                    document.getElementById('disorders-list').innerText = agent.psyche.disorders.length > 0 ? "⚠ " + agent.psyche.disorders.join(", ") : "";
+
+                    const psycheGrid = document.getElementById('psyche-grid');
+                    psycheGrid.innerHTML = "";
+                    const traits = agent.psyche.traits;
+                    for (const t in traits) {
+                        const div = document.createElement('div');
+                        div.className = 'psyche-trait';
+                        div.innerHTML = `<div class="trait-val">${(traits[t]*10).toFixed(0)}</div><div class="trait-name">${t}</div>`;
+                        psycheGrid.appendChild(div);
+                    }
+
+                    document.getElementById('bar-hunger').style.width = agent.stats.hunger + '%';
+                    document.getElementById('bar-energy').style.width = agent.stats.energy + '%';
+
+                    const hand = agent.inventory.equipped.hand;
+                    const handEl = document.getElementById('slot-hand');
+                    handEl.innerText = hand ? `Hand: ${hand.name}` : "Hand: Empty";
+                    handEl.className = hand ? "equip-slot filled" : "equip-slot";
+
+                    const body = agent.inventory.equipped.body;
+                    const bodyEl = document.getElementById('slot-body');
+                    bodyEl.innerText = body ? `Body: ${body.name}` : "Body: Rags";
+                    bodyEl.className = body ? "equip-slot filled" : "equip-slot";
+
+                    const invGrid = document.getElementById('inv-grid');
+                    invGrid.innerHTML = "";
+                    agent.inventory.items.forEach(i => {
+                        const slot = document.createElement('div');
+                        slot.className = 'inv-slot';
+                        slot.innerText = ITEM_ICONS[i.name] || "?";
+                        invGrid.appendChild(slot);
+                    });
+
+                    const logContainer = document.getElementById('memory-log');
+                    logContainer.innerHTML = agent.memory.logs.map(l => {
+                        let color = '#aaa';
+                        if(l.includes('Attacked')) color = '#ff5555';
+                        if(l.includes('Foraged')) color = '#4CAF50';
+                        if(l.includes('Crafted')) color = '#2196F3';
+                        if(l.includes('Sold')) color = 'gold';
+                        return `<div class="log-entry" style="color:${color}">${l}</div>`;
+                    }).reverse().join('');
+                } else selectedId = null;
+            } else { panel.style.display = 'none'; empty.style.display = 'block'; }
+        }
+    </script>
+</body>
+</html>
