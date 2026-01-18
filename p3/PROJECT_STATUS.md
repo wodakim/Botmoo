@@ -27,9 +27,15 @@ Ce projet est un simulateur de société multi-agents en 2D, jouable hors ligne 
 - **Commerce :** Les agents vendent leurs surplus aux Marchands contre de l'Or.
 
 ### 🗣️ Système Social & Mémétique
+- **Langage Dynamique (Nouveau) :** Génération procédurale de phrases (Sujet-Verbe-Objet) contextuelles ("I attack Bot!", "I eat berries").
 - **Langage Viral :** Les phrases sont des "virus" qui se transmettent et mutent entre les agents.
 - **Prestige :** Les agents riches ou bien équipés influencent plus facilement les autres.
-- **Chat Contextuel :** Bulles de dialogue réactives (Salutations, Alertes, Folie).
+- **Chat Contextuel :** Bulles de dialogue réactives (Salutations, Alertes, Folie, Combat).
+
+### 🧬 Génétique & Famille (Nouveau)
+- **Reproduction :** Les agents peuvent se reproduire s'ils trouvent un partenaire compatible.
+- **Héritage :** Les enfants héritent du Nom de Clan (Patrilinéaire/Matrilinéaire) et d'un mélange des traits psychologiques.
+- **Cycle de Vie :** Vieillissement naturel et mort de vieillesse (approx. 60 jours). Affichage visuel de l'âge (Taille).
 
 ### 👁️ Interface (Observer UI)
 - **Caméra :** Zoom et Panoramique fluide.
@@ -66,13 +72,9 @@ Avant de pousser une nouvelle version, vérifiez ces points critiques :
 Pour aller encore plus loin vers une simulation de "Vie Artificielle" complète :
 
 ### 🚀 Court Terme (Prochaines itérations)
-1.  **Système de Famille & Génétique :**
-    *   Reproduction sexuée ou asexuée.
-    *   Transmission des traits psychologiques et du nom de clan.
-2.  **Construction de Bâtiments :**
-    *   Les agents posent des murs/sols pour créer des maisons.
-    *   Stockage de ressources dans des coffres (persistance).
-3.  **Politique & Lois :**
+1.  **Construction de Bâtiments (Amélioré) :**
+    *   Les agents posent déjà des murs, mais il manque le stockage (Coffres).
+2.  **Politique & Lois :**
     *   Élection d'un "Maire" (Agent avec le plus de Prestige).
     *   Lois simples (ex: "Interdit de couper du bois la nuit").
 
